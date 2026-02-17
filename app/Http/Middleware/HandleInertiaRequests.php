@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\SidebarService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -15,6 +16,11 @@ class HandleInertiaRequests extends Middleware
      * @var string
      */
     protected $rootView = 'app';
+
+    public function __construct(private SidebarService $sidebarService)
+    {
+    }
+
 
     /**
      * Determines the current asset version.
@@ -35,13 +41,46 @@ class HandleInertiaRequests extends Middleware
      */
     public function share(Request $request): array
     {
-        return [
-            ...parent::share($request),
-            'name' => config('app.name'),
+        $user = $request->user();
+
+        return array_merge(parent::share($request), [
+
+            // ── Authentification ──────────────────────────────────────────
             'auth' => [
-                'user' => $request->user(),
+                'user' => $user ? [
+                    'id' => $user->id,
+                    'first_name' => $user->first_name,
+                    'last_name' => $user->last_name,
+                    'full_name' => $user->first_name . ' ' . $user->last_name,
+                    'email' => $user->email,
+                    'must_change_password' => $user->must_change_password,
+                    'is_active' => $user->is_active,
+                    'roles' => $user->roles->pluck('name'),
+                    'permissions' => $user->getAllPermissions()->pluck('name'),
+                    // Données étudiant si applicable
+                    'student_id' => $user->student?->id,
+                    'student_number' => $user->student?->student_number,
+                ] : null,
             ],
-            'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
-        ];
+
+            // ── Sidebar dynamique basée sur rôles/permissions ─────────────
+            'sidebar' => $user
+                ? $this->sidebarService->build($user)
+                : [],
+
+            // ── Flash messages ────────────────────────────────────────────
+            'flash' => [
+                'success' => fn() => $request->session()->get('success'),
+                'error' => fn() => $request->session()->get('error'),
+                'info' => fn() => $request->session()->get('info'),
+            ],
+
+            // ── Config app ───────────────────────────────────────────────
+            'app' => [
+                'name' => config('app.name'),
+                'locale' => config('app.locale'),
+                'currency' => 'XOF',
+            ],
+        ]);
     }
 }
